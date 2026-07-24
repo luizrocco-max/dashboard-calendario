@@ -276,14 +276,14 @@ select.native-select {
 .cal-title { font-size: 1.05rem; font-weight: 650; text-transform: capitalize; min-width: 172px; }
 .cal-nav { display: inline-flex; gap: 4px; }
 
-.cal-grid { display: grid; grid-template-columns: repeat(7, 1fr); }
+.cal-grid { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); }
 .cal-dow {
   text-align: center; padding: 9px 4px; font-size: 0.72rem; font-weight: 600;
   color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.04em;
   border-bottom: 1px solid var(--border);
 }
 .cal-cell {
-  min-height: 104px; border-right: 1px solid var(--grid); border-bottom: 1px solid var(--grid);
+  min-height: 104px; min-width: 0; border-right: 1px solid var(--grid); border-bottom: 1px solid var(--grid);
   padding: 6px 6px 8px; position: relative; text-align: left; background: var(--surface-1);
   display: flex; flex-direction: column; gap: 3px; transition: background .1s;
   font-family: inherit; color: inherit;
@@ -299,7 +299,7 @@ select.native-select {
   place-items: center; border-radius: 50%; align-self: flex-start;
 }
 .cal-cell.today .cal-daynum { background: var(--accent); color: #fff; }
-.cal-events { display: flex; flex-direction: column; gap: 3px; overflow: hidden; }
+.cal-events { display: flex; flex-direction: column; gap: 3px; overflow: hidden; min-width: 0; }
 .cal-ev {
   font-size: 0.73rem; line-height: 1.25; padding: 2px 6px; border-radius: 5px;
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis;

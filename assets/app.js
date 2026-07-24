@@ -345,6 +345,14 @@ const PT_MONTH_IDX = {
 };
 const clampDay = (y, m, d) => Math.min(Math.max(d, 1), new Date(y, m, 0).getDate());
 const mkClamped = (y, m, d) => new Date(y, m - 1, clampDay(y, m, d));
+// signature of an event title (série), ignoring the ordinal/number, for sibling matching
+function titleSig(t) {
+  const words = norm(t)
+    .replace(/\d+\s*[ªºao]?/g, ' ')   // drop "3ª", "10", ordinals
+    .replace(/[^a-z\s]/g, ' ')        // letters only
+    .split(/\s+/).filter(w => w.length > 1);
+  return words.slice(0, 4).join(' ');
+}
 
 function detectMatrix(aoa) {
   for (let i = 0; i < Math.min(aoa.length, 25); i++) {
@@ -408,6 +416,21 @@ function buildEventsMatrix() {
     if (e.category) return;
     const up = (e.title || '').toUpperCase();
     for (const code of codes) { if (new RegExp('\\b' + code.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '\\b').test(up)) { e.category = code; break; } }
+  });
+  // infer remaining blanks from "sibling" events (same prova/série, by title signature)
+  const sigCats = new Map();
+  events.forEach(e => {
+    if (!e.category) return;
+    const s = titleSig(e.title); if (!s) return;
+    if (!sigCats.has(s)) sigCats.set(s, new Map());
+    const m = sigCats.get(s); m.set(e.category, (m.get(e.category) || 0) + 1);
+  });
+  events.forEach(e => {
+    if (e.category) return;
+    const m = sigCats.get(titleSig(e.title)); if (!m) return;
+    const ranked = Array.from(m.entries()).sort((a, b) => b[1] - a[1]);
+    const total = ranked.reduce((s, x) => s + x[1], 0);
+    if (ranked.length && ranked[0][1] / total >= 0.6) e.category = ranked[0][0];
   });
   // dedupe cross-month repeats (same event drawn in two month blocks)
   const seen = new Set();
