@@ -466,11 +466,8 @@ function eventsByDay(events) {
   const map = new Map();
   const push = (d, e) => { const k = dayKey(d); if (!map.has(k)) map.set(k, []); map.get(k).push(e); };
   for (const e of events) {
-    const spanDays = e.end ? Math.round((e.end - e.date) / 86400000) + 1 : 1;
-    // provas longas (mais de 4 dias) aparecem só no dia de início, pra não poluir o calendário
-    if (e.end && spanDays > 4) { push(e.date, e); continue; }
     let d = new Date(e.date);
-    const last = e.end ? new Date(Math.min(e.end.getTime(), addDays(e.date, 60).getTime())) : e.date;
+    const last = e.end ? new Date(Math.min(e.end.getTime(), addDays(e.date, 366).getTime())) : e.date;
     while (d <= last) { push(d, e); d = addDays(d, 1); }
   }
   return map;
@@ -652,37 +649,83 @@ function renderCalendar() {
   const first = new Date(year, month, 1);
   const lead = first.getDay();                    // 0 = domingo
   const daysInMonth = new Date(year, month + 1, 0).getDate();
-  const totalCells = Math.ceil((lead + daysInMonth) / 7) * 7;
+  const weeks = Math.ceil((lead + daysInMonth) / 7);
   const start = addDays(first, -lead);
-  const byDay = eventsByDay(filteredEvents());
   const t = today0();
+  const evs = filteredEvents();
+  const byDay = eventsByDay(evs);                 // spans completos, para o painel do dia
 
-  for (let i = 0; i < totalCells; i++) {
-    const d = addDays(start, i);
-    const inMonth = d.getMonth() === month;
-    const cell = el('button', 'cal-cell');
-    if (!inMonth) cell.classList.add('other-month');
-    if (sameDay(d, t)) cell.classList.add('today');
-    cell.appendChild(el('span', 'cal-daynum', String(d.getDate())));
+  const mobile = matchMedia('(max-width: 560px)').matches;
+  const DAYNUM_H = mobile ? 26 : 31;              // altura reservada para o número do dia
+  const BAR_H = mobile ? 7 : 20;
+  const BAR_GAP = 3;
+  const MAX_LANES = mobile ? 5 : 4;
 
-    const evs = byDay.get(dayKey(d)) || [];
-    const box = el('div', 'cal-events');
-    const shown = evs.slice(0, 3);
-    shown.forEach(e => {
-      const chip = el('div', 'cal-ev');
-      chip.style.setProperty('--ev-color', catColorOf(e));
-      const multi = e.end && !sameDay(e.date, e.end);
-      const txt = el('span', 'cal-ev-text', (multi ? '↔ ' : '') + e.title);
-      chip.appendChild(txt);
-      const range = multi ? ` · ${fmtDate(e.date)} – ${fmtDate(e.end)}` : '';
-      chip.title = `${e.title}${e.category ? ' · ' + e.category : ''}${range}`;
-      box.appendChild(chip);
-    });
-    if (evs.length > shown.length) box.appendChild(el('div', 'cal-more', `+${evs.length - shown.length} mais`));
-    cell.appendChild(box);
-    if (evs.length) cell.addEventListener('click', () => openDay(d, evs));
-    else cell.classList.add('empty-cell');
-    grid.appendChild(cell);
+  for (let w = 0; w < weeks; w++) {
+    const weekStart = addDays(start, w * 7);
+    const weekEnd = addDays(weekStart, 6);
+
+    // segmentos de eventos que cruzam esta semana
+    const segs = [];
+    for (const e of evs) {
+      const eEnd = e.end || e.date;
+      if (eEnd < weekStart || e.date > weekEnd) continue;
+      const c0 = Math.max(0, Math.round((e.date - weekStart) / 86400000));
+      const c1 = Math.min(6, Math.round((eEnd - weekStart) / 86400000));
+      segs.push({ e, c0, c1, contLeft: e.date < weekStart, contRight: eEnd > weekEnd });
+    }
+    segs.sort((a, b) => a.c0 - b.c0 || (b.c1 - b.c0) - (a.c1 - a.c0) || String(a.e.title).localeCompare(b.e.title));
+
+    // atribui "faixas" (lanes) — barras que se sobrepõem em colunas vão para faixas diferentes
+    const laneEnd = [];
+    for (const s of segs) {
+      let lane = 0;
+      while (lane < laneEnd.length && laneEnd[lane] >= s.c0) lane++;
+      s.lane = lane;
+      laneEnd[lane] = s.c1;
+    }
+    const shownLanes = Math.min(laneEnd.length, MAX_LANES);
+    const overflow = new Array(7).fill(0);
+    segs.forEach(s => { if (s.lane >= MAX_LANES) for (let c = s.c0; c <= s.c1; c++) overflow[c]++; });
+
+    const weekH = DAYNUM_H + shownLanes * (BAR_H + BAR_GAP) + 6;
+    const week = el('div', 'cal-week');
+    const row = el('div', 'cal-week-row');
+    for (let c = 0; c < 7; c++) {
+      const d = addDays(weekStart, c);
+      const cell = el('button', 'cal-cell');
+      cell.style.minHeight = weekH + 'px';
+      if (d.getMonth() !== month) cell.classList.add('other-month');
+      if (sameDay(d, t)) cell.classList.add('today');
+      cell.appendChild(el('span', 'cal-daynum', String(d.getDate())));
+      if (overflow[c] > 0) { const m = el('div', 'cal-more', `+${overflow[c]}`); m.style.marginTop = 'auto'; cell.appendChild(m); }
+      const dayEvs = byDay.get(dayKey(d)) || [];
+      if (dayEvs.length) cell.addEventListener('click', () => openDay(d, dayEvs));
+      else cell.classList.add('empty-cell');
+      row.appendChild(cell);
+    }
+    week.appendChild(row);
+
+    // camada de barras (por cima das células; cliques passam para as células)
+    const bars = el('div', 'cal-bars');
+    bars.style.top = DAYNUM_H + 'px';
+    for (const s of segs) {
+      if (s.lane >= MAX_LANES) continue;
+      const bar = el('div', 'cal-bar');
+      bar.style.setProperty('--ev-color', catColorOf(s.e));
+      bar.style.left = `calc(${(s.c0 / 7) * 100}% + 3px)`;
+      bar.style.width = `calc(${((s.c1 - s.c0 + 1) / 7) * 100}% - 6px)`;
+      bar.style.top = s.lane * (BAR_H + BAR_GAP) + 'px';
+      bar.style.height = BAR_H + 'px';
+      if (s.contLeft) bar.classList.add('cont-left');
+      if (s.contRight) bar.classList.add('cont-right');
+      if (!mobile) bar.appendChild(el('span', 'cal-bar-text', s.e.title));
+      const multi = s.e.end && !sameDay(s.e.date, s.e.end);
+      bar.title = `${s.e.title}${s.e.category ? ' · ' + s.e.category : ''}${multi ? ' · ' + fmtDate(s.e.date) + ' – ' + fmtDate(s.e.end) : ''}`;
+      bars.appendChild(bar);
+    }
+    week.appendChild(bars);
+    grid.appendChild(week);
   }
 }
 

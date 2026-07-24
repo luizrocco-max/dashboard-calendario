@@ -277,36 +277,45 @@ select.native-select {
 .cal-nav { display: inline-flex; gap: 4px; }
 
 .cal-grid { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); }
+#cal-grid { display: block; }                 /* os dias viram linhas de semana */
 .cal-dow {
   text-align: center; padding: 9px 4px; font-size: 0.72rem; font-weight: 600;
   color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.04em;
   border-bottom: 1px solid var(--border);
 }
+.cal-week { position: relative; border-bottom: 1px solid var(--grid); }
+.cal-week:last-child { border-bottom: none; }
+.cal-week-row { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); }
 .cal-cell {
-  min-height: 104px; min-width: 0; border-right: 1px solid var(--grid); border-bottom: 1px solid var(--grid);
-  padding: 6px 6px 8px; position: relative; text-align: left; background: var(--surface-1);
-  display: flex; flex-direction: column; gap: 3px; transition: background .1s;
+  min-width: 0; border-right: 1px solid var(--grid);
+  padding: 5px 5px 6px; position: relative; text-align: left; background: var(--surface-1);
+  display: flex; flex-direction: column; transition: background .1s;
   font-family: inherit; color: inherit;
 }
 .cal-cell:nth-child(7n) { border-right: none; }
-.cal-cell:hover { background: var(--surface-hover); }
+.cal-cell:not(.empty-cell) { cursor: pointer; }
+.cal-cell:not(.empty-cell):hover { background: var(--surface-hover); }
 .cal-cell.other-month { background: var(--surface-2); }
 .cal-cell.other-month .cal-daynum { color: var(--text-muted); }
-.cal-cell.empty-cell { cursor: default; background: var(--surface-2); }
-.cal-cell.empty-cell:hover { background: var(--surface-2); }
+.cal-cell.empty-cell { cursor: default; }
 .cal-daynum {
-  font-size: 0.82rem; font-weight: 600; width: 26px; height: 26px; display: grid;
+  font-size: 0.82rem; font-weight: 600; width: 24px; height: 24px; display: grid;
   place-items: center; border-radius: 50%; align-self: flex-start;
 }
 .cal-cell.today .cal-daynum { background: var(--accent); color: #fff; }
-.cal-events { display: flex; flex-direction: column; gap: 3px; overflow: hidden; min-width: 0; }
-.cal-ev {
-  font-size: 0.73rem; line-height: 1.25; padding: 2px 6px; border-radius: 5px;
-  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
-  background: color-mix(in srgb, var(--ev-color) 16%, var(--surface-1));
-  color: var(--text-primary); border-left: 3px solid var(--ev-color);
+
+.cal-bars { position: absolute; left: 0; right: 0; pointer-events: none; }
+.cal-bar {
+  position: absolute; box-sizing: border-box; overflow: hidden;
+  display: flex; align-items: center; white-space: nowrap;
+  font-size: 0.72rem; line-height: 1; padding: 0 6px; border-radius: 5px;
+  background: color-mix(in srgb, var(--ev-color) 18%, var(--surface-1));
+  border-left: 3px solid var(--ev-color); color: var(--text-primary);
 }
-.cal-more { font-size: 0.7rem; color: var(--text-muted); font-weight: 600; padding: 0 4px; }
+.cal-bar.cont-left { border-left: none; border-top-left-radius: 0; border-bottom-left-radius: 0; }
+.cal-bar.cont-right { border-top-right-radius: 0; border-bottom-right-radius: 0; }
+.cal-bar-text { overflow: hidden; text-overflow: ellipsis; }
+.cal-more { font-size: 0.68rem; color: var(--text-muted); font-weight: 600; align-self: flex-start; }
 
 /* ------------------------------------------------------------ charts row --- */
 .charts-row { display: grid; grid-template-columns: 1fr 1fr; gap: 18px; }
@@ -419,17 +428,14 @@ details.mapping[open] > summary { border-bottom-left-radius: 0; border-bottom-ri
 @media (max-width: 860px) {
   .kpi-row { grid-template-columns: repeat(2, 1fr); }
   .charts-row { grid-template-columns: 1fr; }
-  .cal-cell { min-height: 82px; }
   .cal-title { min-width: 0; font-size: 0.95rem; }
 }
 @media (max-width: 560px) {
   body { font-size: 14px; }
   .cal-dow { font-size: 0.62rem; padding: 7px 1px; }
-  .cal-cell { min-height: 64px; padding: 4px 3px; }
+  .cal-cell { padding: 4px 3px; }
   .cal-daynum { width: 22px; height: 22px; font-size: 0.76rem; }
-  .cal-ev { font-size: 0.64rem; padding: 1px 4px; }
-  .cal-ev-text { display: none; }
-  .cal-ev { height: 6px; padding: 0; border-left: none; border-radius: 3px; background: var(--ev-color); }
+  .cal-bar { border-left-width: 0; border-radius: 3px; background: var(--ev-color); }
   .kpi-value { font-size: 1.6rem; }
   .brand-sub { display: none; }
 }
