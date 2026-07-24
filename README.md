@@ -41,6 +41,16 @@ Detalhes que ele entende automaticamente:
 - Uma **linha de título** acima do cabeçalho (ex.: “Agenda 2026”) é ignorada.
 - Várias **abas** — dá para escolher qual usar.
 
+### Formato calendário em matriz
+
+Além do formato de lista (uma linha por evento), o dashboard também reconhece
+automaticamente o formato de **calendário de parede em matriz**: colunas
+`EVENTOS · DATA · CONFEDERAÇÃO` seguidas das colunas de dias `1…31`, organizada
+em **blocos por mês**, com **“X” marcando os dias** de cada evento. Nesse caso as
+datas saem da coluna `DATA` (entende “24/02 a 01/03”, “14 e 15”, “7 a 12”, etc.),
+as categorias saem de `CONFEDERAÇÃO`, e eventos que cruzam a virada de mês são
+unificados. O ano é lido do nome do arquivo/aba (ajustável em *Configurar*).
+
 Se ele errar alguma coluna, use **“Configurar colunas e cabeçalho”** para
 corrigir manualmente (inclusive a linha do cabeçalho).
 

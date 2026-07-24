@@ -244,16 +244,29 @@ function loadFile(file) {
 function activateSheet(name, autoView) {
   state.sheetName = name;
   state.aoa = sheetToAoa(state._wb, name);
-  state.headerRow = detectHeaderRow(state.aoa);
-  rebuildHeaders();
-  state.mapping = autoMap(state.aoa, state.headerRow, state.headers);
-  buildEvents();
+  state.headerRow = null;
+  state.mapping = null;
+  processData(autoView);
+}
+// Decide between the matrix-calendar format and the generic tabular format, then build events.
+function processData(autoView) {
+  state.matrix = detectMatrix(state.aoa);
+  state.year = detectYear(state.aoa, state.sheetNames, state.fileName);
+  if (state.matrix) {
+    state.mapping = null;
+    buildEventsMatrix();
+  } else {
+    if (state.headerRow == null) state.headerRow = detectHeaderRow(state.aoa);
+    rebuildHeaders();
+    if (!state.mapping) state.mapping = autoMap(state.aoa, state.headerRow, state.headers);
+    buildEvents();
+  }
   if (autoView) pickInitialView();
   renderAll();
   showDashboard();
   if (!state.events.length) {
     $('#mapping').open = true;
-    toast('Não identifiquei uma coluna de datas. Ajuste as colunas em “Configurar colunas e cabeçalho”.', true);
+    toast('Não identifiquei datas na planilha. Ajuste as colunas em “Configurar colunas e cabeçalho”.', true);
   }
 }
 function rebuildHeaders() {
@@ -323,6 +336,96 @@ function pickInitialView() {
   state.view = new Date((upcoming || state.events[state.events.length - 1]).date);
 }
 
+/* ---------------------------------------------- matrix (grid) calendar format
+   Formato "planilha de parede": colunas EVENTOS | DATA | CONFEDERAÇÃO + colunas
+   de dias 1..31, com blocos por mês e "X" marcando os dias de cada evento. */
+const PT_MONTH_IDX = {
+  janeiro: 1, fevereiro: 2, marco: 3, abril: 4, maio: 5, junho: 6,
+  julho: 7, agosto: 8, setembro: 9, outubro: 10, novembro: 11, dezembro: 12,
+};
+const clampDay = (y, m, d) => Math.min(Math.max(d, 1), new Date(y, m, 0).getDate());
+const mkClamped = (y, m, d) => new Date(y, m - 1, clampDay(y, m, d));
+
+function detectMatrix(aoa) {
+  for (let i = 0; i < Math.min(aoa.length, 25); i++) {
+    const row = aoa[i] || [];
+    let eventCol = -1, dataCol = -1, confCol = -1;
+    row.forEach((c, ci) => {
+      const n = norm(c);
+      if (n === 'eventos' && eventCol < 0) eventCol = ci;
+      if (n === 'data' && dataCol < 0) dataCol = ci;
+      if ((n === 'confederacao' || n === 'confederacoes') && confCol < 0) confCol = ci;
+    });
+    if (eventCol >= 0 && dataCol >= 0) {
+      const dayCols = {};
+      row.forEach((c, ci) => { const v = Number(c); if (Number.isInteger(v) && v >= 1 && v <= 31 && ci > dataCol) dayCols[ci] = v; });
+      if (Object.keys(dayCols).length >= 20) return { headerRow: i, eventCol, dataCol, confCol, dayCols };
+    }
+  }
+  return null;
+}
+function detectYear(aoa, sheetNames, fileName) {
+  const hay = [fileName || '', (sheetNames || []).join(' '), (aoa.slice(0, 3).flat() || []).map(c => c == null ? '' : String(c)).join(' ')].join(' ');
+  const m = hay.match(/20\d{2}/);
+  return m ? +m[0] : new Date().getFullYear();
+}
+function matrixSpan(text, month, year, row, dayCols) {
+  text = (text || '').trim();
+  let m;
+  if ((m = text.match(/(\d{1,2})\s*\/\s*(\d{1,2}).*?\ba\b.*?(\d{1,2})\s*\/\s*(\d{1,2})/i)))
+    return { start: mkClamped(year, +m[2], +m[1]), end: mkClamped(year, +m[4], +m[3]) };
+  if ((m = text.match(/^(\d{1,2})\s*\/\s*(\d{1,2})$/))) { const d = mkClamped(year, +m[2], +m[1]); return { start: d, end: d }; }
+  if (month) {
+    if ((m = text.match(/^(\d{1,2})\s*a\s*(\d{1,2})$/i))) return { start: mkClamped(year, month, +m[1]), end: mkClamped(year, month, +m[2]) };
+    const nums = (text.match(/\d{1,2}/g) || []).map(Number).filter(n => n >= 1 && n <= 31);
+    if (nums.length) return { start: mkClamped(year, month, Math.min(...nums)), end: mkClamped(year, month, Math.max(...nums)) };
+  }
+  const marks = [];
+  for (const ci in dayCols) { const v = (row[ci] == null ? '' : String(row[ci]).trim()); if (v && v !== '·') marks.push(dayCols[ci]); }
+  if (month && marks.length) return { start: mkClamped(year, month, Math.min(...marks)), end: mkClamped(year, month, Math.max(...marks)) };
+  return null;
+}
+function buildEventsMatrix() {
+  const aoa = state.aoa, year = state.year, L = state.matrix;
+  const events = [];
+  let month = null;
+  const codes = new Set();          // confederation codes seen (for inferring blanks)
+  for (let i = 0; i < aoa.length; i++) {
+    const row = aoa[i] || [];
+    for (const c of row) { const mo = PT_MONTH_IDX[norm(c)]; if (mo) { month = mo; break; } }
+    if (norm(row[L.eventCol]) === 'eventos') continue;                 // repeated header row
+    const title = row[L.eventCol] == null ? '' : String(row[L.eventCol]).trim();
+    const dataText = row[L.dataCol] == null ? '' : String(row[L.dataCol]).trim();
+    if (!title && !dataText) continue;                                 // weekday / pure month row
+    const span = matrixSpan(dataText, month, year, row, L.dayCols);
+    if (!span) continue;
+    let category = L.confCol >= 0 && row[L.confCol] != null && String(row[L.confCol]).trim() !== '' ? String(row[L.confCol]).trim() : null;
+    if (category) codes.add(category.toUpperCase());
+    events.push({ _row: i, date: span.start, end: span.end > span.start ? span.end : null, title: title || '(sem título)', category, dataText, month });
+  }
+  // infer blank categories from a code appearing literally in the title
+  events.forEach(e => {
+    if (e.category) return;
+    const up = (e.title || '').toUpperCase();
+    for (const code of codes) { if (new RegExp('\\b' + code.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '\\b').test(up)) { e.category = code; break; } }
+  });
+  // dedupe cross-month repeats (same event drawn in two month blocks)
+  const seen = new Set();
+  const deduped = [];
+  for (const e of events) {
+    const k = [e.title, e.category || '', +e.date, +(e.end || e.date)].join('|');
+    if (seen.has(k)) continue;
+    seen.add(k);
+    const monthName = e.month ? PT_MONTHS[e.month - 1] : '';
+    const period = fmtDate(e.date) + (e.end ? ' – ' + fmtDate(e.end) : '');
+    e.raw = { 'Data (planilha)': e.dataText || period, 'Período': period, 'Mês': monthName ? monthName.charAt(0).toUpperCase() + monthName.slice(1) : '' };
+    deduped.push(e);
+  }
+  deduped.sort((a, b) => a.date - b.date);
+  state.events = deduped;
+  buildCategories();
+}
+
 /* -------------------------------------------------------------- filtering */
 function filteredEvents() {
   const q = norm(state.search);
@@ -338,15 +441,13 @@ function filteredEvents() {
 /* expand multi-day events into per-day occurrences within a bounded range */
 function eventsByDay(events) {
   const map = new Map();
+  const push = (d, e) => { const k = dayKey(d); if (!map.has(k)) map.set(k, []); map.get(k).push(e); };
   for (const e of events) {
+    const spanDays = e.end ? Math.round((e.end - e.date) / 86400000) + 1 : 1;
+    if (e.end && spanDays > 20) { push(e.date, e); continue; }   // mês inteiro: mostra só no dia de início
     let d = new Date(e.date);
     const last = e.end ? new Date(Math.min(e.end.getTime(), addDays(e.date, 60).getTime())) : e.date;
-    while (d <= last) {
-      const k = dayKey(d);
-      if (!map.has(k)) map.set(k, []);
-      map.get(k).push(e);
-      d = addDays(d, 1);
-    }
+    while (d <= last) { push(d, e); d = addDays(d, 1); }
   }
   return map;
 }
@@ -380,6 +481,30 @@ function renderSheetSelect() {
 function renderMapping() {
   const body = $('#mapping-body');
   body.innerHTML = '';
+  const summary = $('#mapping > summary');
+
+  // Matrix (grid) format: columns are fixed by detection — show a note + year override.
+  if (state.matrix) {
+    if (summary) summary.lastChild.textContent = ' Formato calendário (matriz) detectado — ajustar ano';
+    const note = el('div', 'map-field');
+    note.style.gridColumn = '1 / -1';
+    note.innerHTML = `<label>Formato detectado automaticamente</label><div style="font-size:.84rem;color:var(--text-secondary)">` +
+      `Sua planilha usa o formato de calendário em matriz (colunas <strong>EVENTOS · DATA · CONFEDERAÇÃO</strong> + dias 1–31, com “X” marcando os dias). ` +
+      `As datas vêm da coluna <strong>DATA</strong> e as categorias da <strong>CONFEDERAÇÃO</strong>. Eventos que cruzam o mês são unificados.</div>`;
+    const yr = el('div', 'map-field');
+    yr.appendChild(el('label', null, 'Ano do calendário'));
+    const yi = el('input');
+    yi.type = 'number'; yi.min = '2000'; yi.max = '2100'; yi.value = String(state.year);
+    yi.addEventListener('change', () => {
+      const v = +yi.value; if (v >= 2000 && v <= 2100) { state.year = v; buildEventsMatrix(); pickInitialView(); renderAll(); persist(); }
+    });
+    yr.appendChild(yi);
+    body.appendChild(note);
+    body.appendChild(yr);
+    return;
+  }
+  if (summary) summary.lastChild.textContent = ' Configurar colunas e cabeçalho';
+
   const opts = (selected, allowEmpty) => {
     let h = allowEmpty ? `<option value="-1"${selected < 0 ? ' selected' : ''}>— nenhuma —</option>` : '';
     state.headers.forEach((lbl, i) => { h += `<option value="${i}"${i === selected ? ' selected' : ''}>${escapeHtml(lbl)}</option>`; });
@@ -712,7 +837,7 @@ function renderUpcoming() {
   const host = $('#upcoming');
   host.innerHTML = '';
   const t = today0();
-  const up = filteredEvents().filter(e => (e.end || e.date) >= t).slice(0, 8);
+  const up = filteredEvents().filter(e => e.date >= t).slice(0, 8);
   if (!up.length) { host.appendChild(emptyNote('Nenhum evento a partir de hoje.')); return; }
   up.forEach(e => {
     const item = el('div', 'up-item');
@@ -738,6 +863,7 @@ function renderUpcoming() {
   });
 }
 function firstExtra(e) {
+  if (!state.mapping) return e.dataText || (e.raw ? Object.values(e.raw)[0] : '') || '';
   const used = new Set();
   [state.mapping.date, state.mapping.title, state.mapping.category, state.mapping.end].forEach(i => { if (i >= 0) used.add(state.headers[i]); });
   for (const [k, v] of Object.entries(e.raw)) if (!used.has(k)) return v;
@@ -760,8 +886,8 @@ function openDay(d, evs) {
       tag.appendChild(sw); tag.appendChild(document.createTextNode(e.category));
       card.appendChild(tag);
     }
-    const titleHeader = state.mapping.title >= 0 ? state.headers[state.mapping.title] : null;
-    const catHeader = state.mapping.category >= 0 ? state.headers[state.mapping.category] : null;
+    const titleHeader = state.mapping && state.mapping.title >= 0 ? state.headers[state.mapping.title] : null;
+    const catHeader = state.mapping && state.mapping.category >= 0 ? state.headers[state.mapping.category] : null;
     Object.entries(e.raw).forEach(([k, v]) => {
       if (k === titleHeader || k === catHeader) return;
       const f = el('div', 'ev-field');
@@ -823,11 +949,10 @@ function restore() {
     state.fileName = p.fileName; state.sheetNames = p.sheetNames || [p.sheetName];
     state.sheetName = p.sheetName;
     state.aoa = p.aoa.map(r => (r || []).map(c => (c && typeof c === 'object' && '__d' in c) ? new Date(c.__d) : c));
-    state.headerRow = p.headerRow || 0;
-    rebuildHeaders();
-    state.mapping = p.mapping || autoMap(state.aoa, state.headerRow, state.headers);
+    state.headerRow = p.headerRow != null ? p.headerRow : null;
+    state.mapping = p.mapping || null;
     state._wb = null;
-    buildEvents(); pickInitialView(); renderAll(); showDashboard();
+    processData(true);
     return true;
   } catch (e) { return false; }
 }
