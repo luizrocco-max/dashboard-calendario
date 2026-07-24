@@ -1052,6 +1052,26 @@ function loadSample() {
   toast('Carregado com dados de exemplo. Troque pela sua planilha quando quiser.');
 }
 
+/* --------------------------------------------------- planilha padrão (deploy) */
+// Abre o dashboard já com a planilha publicada no site (data/…). O usuário pode
+// trocar por outra a qualquer momento; não persiste, então atualizar o arquivo
+// no repositório reflete direto no site.
+const DEFAULT_DATA_URL = 'data/CALENDARIO_2026.xlsx';
+const DEFAULT_DATA_NAME = 'CALENDARIO_2026.xlsx';
+async function loadDefaultData() {
+  try {
+    const res = await fetch(DEFAULT_DATA_URL, { cache: 'no-store' });
+    if (!res.ok) return false;
+    const buf = await res.arrayBuffer();
+    const wb = XLSX.read(new Uint8Array(buf), { type: 'array', cellDates: true, dateNF: 'yyyy-mm-dd' });
+    const names = wb.SheetNames.filter(n => sheetToAoa(wb, n).some(r => r && r.some(c => c != null && String(c).trim() !== '')));
+    if (!names.length) return false;
+    state.fileName = DEFAULT_DATA_NAME; state._wb = wb; state.sheetNames = names;
+    activateSheet(names[0], true);      // renderiza; não persiste
+    return true;
+  } catch (e) { return false; }
+}
+
 /* ------------------------------------------------------------------- wiring */
 function chooseFile() { $('#file-input').click(); }
 function initEvents() {
@@ -1088,4 +1108,4 @@ function initEvents() {
 /* --------------------------------------------------------------------- init */
 initTheme();
 initEvents();
-restore();
+if (!restore()) loadDefaultData();
