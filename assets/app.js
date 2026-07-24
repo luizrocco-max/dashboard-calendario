@@ -467,7 +467,8 @@ function eventsByDay(events) {
   const push = (d, e) => { const k = dayKey(d); if (!map.has(k)) map.set(k, []); map.get(k).push(e); };
   for (const e of events) {
     const spanDays = e.end ? Math.round((e.end - e.date) / 86400000) + 1 : 1;
-    if (e.end && spanDays > 20) { push(e.date, e); continue; }   // mês inteiro: mostra só no dia de início
+    // provas longas (mais de 4 dias) aparecem só no dia de início, pra não poluir o calendário
+    if (e.end && spanDays > 4) { push(e.date, e); continue; }
     let d = new Date(e.date);
     const last = e.end ? new Date(Math.min(e.end.getTime(), addDays(e.date, 60).getTime())) : e.date;
     while (d <= last) { push(d, e); d = addDays(d, 1); }
@@ -670,9 +671,11 @@ function renderCalendar() {
     shown.forEach(e => {
       const chip = el('div', 'cal-ev');
       chip.style.setProperty('--ev-color', catColorOf(e));
-      const txt = el('span', 'cal-ev-text', e.title);
+      const multi = e.end && !sameDay(e.date, e.end);
+      const txt = el('span', 'cal-ev-text', (multi ? '↔ ' : '') + e.title);
       chip.appendChild(txt);
-      chip.title = `${e.title}${e.category ? ' · ' + e.category : ''}`;
+      const range = multi ? ` · ${fmtDate(e.date)} – ${fmtDate(e.end)}` : '';
+      chip.title = `${e.title}${e.category ? ' · ' + e.category : ''}${range}`;
       box.appendChild(chip);
     });
     if (evs.length > shown.length) box.appendChild(el('div', 'cal-more', `+${evs.length - shown.length} mais`));
